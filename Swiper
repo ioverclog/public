@@ -1,11 +1,11 @@
 import React, {Component} from 'react';
 import PropTypes from 'prop-types';
 import LogService from 'services/LogService';
-import {AppInfoService} from 'services/deviceinfo';
+import {AppInfoService} from 'services/deviceInfo';
 
 import { connect } from 'react-redux';
 import { bindActionCreators } from 'redux';
-import { ActionCreators as HomeTabActionCreators } from 'app/HomeTab/HomeTabs';
+import { ActionCreators as HomeTabsActionCreators } from 'app/HomeTab/HomeTabs';
 import { ActionCreators as TabMenuActionCreators } from 'app/common/HomeTabMenu/TabMenus';
 
 let Utils = {
@@ -24,19 +24,19 @@ let Utils = {
               transformMatrix = new win.WebKitCSSMatrix(curTransform === 'none' ? '' : curTransform);
           }
        } else {
-          transformMatrix = curStyle.MozTransform || curStyle.OTrnasform || curStyle.MsTransform || curStyle.msTransform || curStyle.transform || curStyle.getPropertValue('transform').replace('translate(', 'matrix(1, 0, 0, 1,');
+          transformMatrix = curStyle.MozTransform || curStyle.OTransform || curStyle.MsTransform || curStyle.msTransform || curStyle.transform || curStyle.getPropertValue('transform').replace('translate(', 'matrix(1, 0, 0, 1,');
           matrix = transformMatrix.toString().split(',');
        }
     }
     
-    // Lastest Chrome and webkits Fix
+    // Latest Chrome and webkits Fix
     if (win.WebKitCSSMatrix) { curTransform = transformMatrix.m41; }
     // Crazy IE10 Matrix
     else if (matrix.length === 16) { curTransform = parseFloat(matrix[12]); }
     //Normal Browsers
     else { curTransform = parseFloat(matrix[4]); }
 
-    //curTransform = Number(window.gtComputedStyle(this.swipeRootElement).transform.split(',')[4] || 0) //getComputedStyle 은 PX 값을 return 한다.
+    //curTransform = Number(window.getComputedStyle(this.swipeRootElement).transform.split(',')[4] || 0) //getComputedStyle 은 PX 값을 return 한다.
     return curTransform || 0;
     },
     getRandomStart : ( length ) => {
@@ -92,53 +92,117 @@ class Swiper extends Component {
             this._changePropsIfSlideOnlyOne();
             // Position 초기화
             this._setInitCurrentIndex();
-            this._chagnePagenation();
+            this._changePagenation();
             this.startAutoPlay();
-            if( this.slides.length > 1 ) this._changePositions();
+            if( this.slides.length > 1 ) this._chagePositions();
             //this.lastSwipeLength = this.props.children.length % this.props.viewContLength;//전체 개수 / 화면 표출 개수
             this.canSwipeNum = Math.ceil(this.slides.length / this.props.viewContLength); //Swipe 가능 개수
         }
 
-        this.midXpos = 0;
+        this.minXpos = 0;
         this.maxXpos = -(this.swipeRootElement.clientWidth - this.winWidth);
     }
 
     /** *********** Life Cycle *********** **/
-    
+    componentDidMount(){
+        this._update();
+    }
+    componentWillUnmount() {
+        this._pause();
+        this._stopTransform();
+        this.swipeRootElement.removeEventListener("transitionend", this._endTransition, false);
+    }
 
+    getRemoteDistance( nextProps )  {
+        this.isRemoteMove = true;
+        this.direction = nextProps.direction;
+        let distance = (this.direction == 'prev')? this.slideWidth : -this.slideWidth;
+        if( nextProps.distance == 0 ){
+            distance = 0;
+        }
+        return distance
+    }
+    componentWillReceiveProps( nextProps ){
+        //home-swipe > touch end 시 실행
+        if( nextProps.triggerSyncMoveEnd != this.props.tirggerSyncMoveEnd ){//triggered Remote Touch End
+            let distance = this.getRemoteDistance(nextProps);
+            this._playMovingForHome( distance, 'touchend' );
+        }
+        //Nav Click 시 실행
+        if( this.props.idClass == 'header-swipe' || this.props.idClass == 'home-swipe' ){
+            if( nextProps.isTriggeredHomeSwipe != this.props.isTriggeredInHomeSwipe ){
+                this.gotoSlide( nextProps.currentTab );
+                //LOGGING
+                if( tbhis.props.idClass == 'home-swipe' ){
+                    this._sendLogsNew(nextProps.currentTab)
+                }
+            }
+        }
 
+        if( this.props.idClass == 'app-nav-home' && this.props.currentTab != nextProps.currentTab ){
+            this.gotoPostion(nextProps.initIndex);
+        }
 
+        //Swipe 가 화면에 표출될 때만 Auto Play
+        if( this.props.idClass == 'home-event' ){
+            if( nextProps.currentTab == 0 ){
+                this.startExternalAutoPlay();
+            } else {
+                this._pause();
+            }
+        }
 
+        if( this.props.idClass == 'style-mds-pick' ){
+            if( nextProps.currentTab == 5 ){
+                this.startExternalAutoPlay();
+            } else {
+                this._pause();
+            }
+        }
+    }
+    componentDidUpdate( prevProps, prevStat ){
+         //TODO 최적화 필요
+         if(this.slides.length != this.swipeRootElement.children.length){
+             this._update();
+         }
+    }
 
+    _animate({timing, draw, duration}) {
+        let start = window.performance.now();
+        let animate;
+        this.animationFrame = requestAnimationFrame(animate = (time) => {
+            // timeFraction goes from 0 to 1
+            let timeFraction = (time -start) / duration;
+             
+            if(timeFraction < 0){
+                timeFraction = 0;
+            }
 
+            if (timeFraction > 1) {
+                timeFraction = 1;
+            }
 
+            let result = 100 - (timeFraction * 100);
 
+            // calculate the current animation state
+            let progress = timing(result);
 
+            draw(progress); // draw if
+
+            if (timeFraction < 1 && this.playAnimation ) {
+                requestAnimationFrame(animate);
+            }
+        });
+    }
+    _stopAnimation() {
+        this.playAnimation = false;
+        if( this.animationFrame ){
+            cancelAnimationFrame(this.animationFrame);
+        }
+    }
+
+    /** ******* Event Listener ******** **/
+    _touchStart(evt) {
+      
+    }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
- 
