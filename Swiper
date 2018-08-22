@@ -203,6 +203,29 @@ class Swiper extends Component {
 
     /** ******* Event Listener ******** **/
     _touchStart(evt) {
-      
+        this._stopAnimation();//for javascript freemode
+        this._pause();//stop auto play
+
+        if( this.props.idClass == 'header-swipe' || this.isTransition ){
+            return;
+        }
+   
+        if ( this.props.children.length > 1 && this.valid ) {
+            this.startCoords = evt.touches[0];
+            this.curX = this.startCoords.clientX;
+            this.startEvent = Object.assign({}, evt);
+
+            /** For Free Mode **/
+            if( this.props.isFreeContainer || this.props.idClass == 'soho-swipe' ) {
+                this.currentXpos = Utils.getTranslate( this.swipeRootElement );
+            }
+        }
+
+        if( !this.$remoteSwiper && this.props.idClass == 'home-swipe' ){
+            this.$remoteSwiper = document.querySelector('.header-swipe > .swiper-wrapper');
+        }
+
+        this.valid = false;
+        this._setEventPropagation( evt );
     }
 }
