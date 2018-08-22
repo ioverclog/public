@@ -228,4 +228,43 @@ class Swiper extends Component {
         this.valid = false;
         this._setEventPropagation( evt );
     }
+    _touchMove(evt) {
+        if ( this.props.children.length > 1 ) {
+            if( this.props.idClass == 'header-swipe' || this.isTransition ){
+                return;
+            }
+
+            let moveCoords = evt.touchs[0];
+            this.curX = moveCoords.clientX;
+
+            this._validSwipe( moveCoords );//this.isScrolling 셋팅
+            
+            if( this.isScrolling ){
+                if( !this.props.loop ){
+                    /** Style 탭 > Swipe **/
+                    this._moveSohoSwipe( evt );
+ 
+                } else if( this.props.isFreeContainer ) {
+                    /** Free Mode **/
+                    this._stopAnimation();
+                    this._moveFreeScroll( evt );
+               
+                } else {
+                    //For Two Slide
+                    if( this.canSwipeNum == 2 ){
+                        this._changeDirection();
+                    }
+                    /** Default Mode **/
+                    this._moveDefaultSwipe( evt );
+                }
+                this.vaild = true
+            }
+        }
+        
+        this._setEventPropagation( evt );
+    }
+    _touchCancel() {}
+    _touchEnd(evt) {}
+    //상품 클릭, 새 창 뜨면, auto swipe가 멈추는 것 해결
+    _onClick(evt) {}
 }
