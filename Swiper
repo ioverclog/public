@@ -1,1 +1,144 @@
+import React, {Component} from 'react';
+import PropTypes from 'prop-types';
+import LogService from 'services/LogService';
+import {AppInfoService} from 'services/deviceinfo';
 
+import { connect } from 'react-redux';
+import { bindActionCreators } from 'redux';
+import { ActionCreators as HomeTabActionCreators } from 'app/HomeTab/HomeTabs';
+import { ActionCreators as TabMenuActionCreators } from 'app/common/HomeTabMenu/TabMenus';
+
+let Utils = {
+    getTranslate : (el) => {
+       let matrix;
+       let curTransform;
+       let transformMatrix;
+       let win = window;
+
+       let curStyle = window.getComputedStyle(el, null);
+       
+       if(win.WebKitCSSMatrix) {
+          curTransform = curStyle.transform || curStyle.webkitTransform;
+          if (curTransform.split(',').length > 6) {
+              curTransform = curTransform.split(', ').map(function (a) { return a.replace(',', '.'); }).join(', ');
+              transformMatrix = new win.WebKitCSSMatrix(curTransform === 'none' ? '' : curTransform);
+          }
+       } else {
+          transformMatrix = curStyle.MozTransform || curStyle.OTrnasform || curStyle.MsTransform || curStyle.msTransform || curStyle.transform || curStyle.getPropertValue('transform').replace('translate(', 'matrix(1, 0, 0, 1,');
+          matrix = transformMatrix.toString().split(',');
+       }
+    }
+    
+    // Lastest Chrome and webkits Fix
+    if (win.WebKitCSSMatrix) { curTransform = transformMatrix.m41; }
+    // Crazy IE10 Matrix
+    else if (matrix.length === 16) { curTransform = parseFloat(matrix[12]); }
+    //Normal Browsers
+    else { curTransform = parseFloat(matrix[4]); }
+
+    //curTransform = Number(window.gtComputedStyle(this.swipeRootElement).transform.split(',')[4] || 0) //getComputedStyle 은 PX 값을 return 한다.
+    return curTransform || 0;
+    },
+    getRandomStart : ( length ) => {
+        let index = 0;
+        if( length > 1 ){
+            index = Math.floor((Math.random() * length) + 1) - 1;
+        }
+        return index;
+    }
+};
+
+class Swiper extends Component {
+    constructor(props) { 
+       super(props);
+       
+       this._endTransition = this._endTransition.bind(this);
+      
+       this.winWidth = window.innerWidth;
+       this.interval = null;
+       this.valid = true;
+       this.isTransition = false;
+       this.currentIndex = 0;
+
+       this.slides = [];
+       this.slideInnerXpos = [];
+       
+       this.swipeRootElement = null;//ref element 저장 //componentDidMount 이후 실행됨
+       this.$remoteSwiper = null;
+       this.direction = 'next';
+
+       this.isStopPropagation = true;
+       this.animationFrame = null;
+
+       this.isScrolling = undefined;//touchMove 시 1회만 발생
+       this.isRemoteMove = false;
+  
+       //no loop일 경우, touch start할 때, 최초 위치값을 구하기 위해 필요하다. 기존 값 + 현재 값.
+       this.sohoStyleCurrentPos = 0;
+       this.playAnimation = true;
+
+       if(this.props.idClass.indexOf('search-tab-swipe') > -1){
+           this.isAbsolutePostionMode = true;
+       }
+
+       this.state = {
+           autoPlay :  this.props.autoPlay
+       }
+    }
+    _update() {
+        if( !this.props.isFreeContainer ) {
+            this._getSlides();
+            this._setSlidePos();//최초 1회 필요 (change position mode일 때)
+            this._changePropsIfSlideOnlyOne();
+            // Position 초기화
+            this._setInitCurrentIndex();
+            this._chagnePagenation();
+            this.startAutoPlay();
+            if( this.slides.length > 1 ) this._changePositions();
+            //this.lastSwipeLength = this.props.children.length % this.props.viewContLength;//전체 개수 / 화면 표출 개수
+            this.canSwipeNum = Math.ceil(this.slides.length / this.props.viewContLength); //Swipe 가능 개수
+        }
+
+        this.midXpos = 0;
+        this.maxXpos = -(this.swipeRootElement.clientWidth - this.winWidth);
+    }
+
+    /** *********** Life Cycle *********** **/
+    
+
+
+
+
+
+
+
+
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 
