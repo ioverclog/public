@@ -518,7 +518,7 @@ class Swiper extends Component {
                 duration = '140ms';
                 break;
             case 'autoplay':
-                duratioin = '600ms';
+                duration = '600ms';
                 break;
             case 'touchmove':
                 duration = '0ms';
