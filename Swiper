@@ -263,8 +263,149 @@ class Swiper extends Component {
         
         this._setEventPropagation( evt );
     }
-    _touchCancel() {}
-    _touchEnd(evt) {}
+    _touchCancel() {
+        this.valid = false;
+        this.isTransition = false;
+    }
+    _touchEnd(evt) {
+        if ( this.props.children.length > 1 && this.valid ) {
+            if( this.props.idClass == 'header-swipe' || this.isTransition ){
+                return;
+            }
+            
+            let endCoords = evt.changedTouches[0];
+            this.curX = endCoords.clientX;
+            
+            /** Style > 3 view Swipe **/
+            if( !this.props.loop ){
+                let distance = this._setSohoSwipeMoveDistance();
+                this._playMoving( distance, 'touchend' );
+                
+            } else if( this.props.isFreeContainer ){
+            /** For Free Mode **/
+                this._stopAnimation();
+                this._freeModeAnimation( evt );//no exec if stop time is long
+            } else {
+            /** Default **/
+                let distance = this._setDefaultMoveDistance();
+                this._playMoving( distance, 'touchend' );
+                
+                if( this.props.idClass == 'home-swipe' ){
+                    this._remoteTouchEnd( distance );
+                }
+            }           
+        }
+        
+        this.vaild = true;
+        this.isScrolling = undefined;
+        
+        if( !this.props.isFreeContainer && this.state.autoPlay ) {
+            this._play();
+        }
+        
+        this._setEventPropagation( evt );
+    }
     //상품 클릭, 새 창 뜨면, auto swipe가 멈추는 것 해결
-    _onClick(evt) {}
+    _onClick(evt) {
+        evt.preventDefault();
+        evt.stopPropagation();
+        
+        if( !this.props.isFreeContainer && this.props.idClass != 'header-swipe' ) {
+            this._play();
+        }
+    }
+    
+    /** ***************** Private Method ***************** **/
+    //TouchMove Type
+    _moveSohoSwipe( evt ) {
+        //save position needed
+        this._setMovePosX( evt );//this is needed for direction in touchEnd
+        
+        let easing = 0.43;
+        let posX = (this.curX - this.startCoords.clientX) / this.winWidth * 100 * easing;
+        
+        //Soho Swipe
+        posX = posX + this.sohoStyleCurrentPos; //% unit (entire screen is 100%)
+        
+        // 2) move controll
+        let checkPosX = (this.curX - this.startCoords.clientX); //PX unit
+        checkPosX = checkPosX + this.currentXpos;//current transform % position
+        
+        //left, right No Scroll
+        if( checkPosX < this.minXpos && checkPosX > this.maxXpos ){
+            this._transformAnimation( posX, 'touchmove' );//% unit
+        }
+    }
+    _moveFreeScroll( evt ) {
+        this._setMovePosX( evt );//this is needed in animation for direction
+        
+        // 2) move controll
+        let posX = (this.curX - this.startCoords.clientX) + this.currentXpos; //PX unit
+        
+        //result value of Move(this is needed in free animation)
+        this.moveLastPos = posX;
+        
+        //left, right No Scroll
+        if( posX <= this.minXpos && posX >= this.maxXpos ){
+            this._transformAnimation( posX, 'touchmove' );
+        } else {
+            evt.preventedByNestedSwiper = true;
+        }
+    }
+    _moveDefaultSwipe( evt ) {
+        //save needed position
+        this._setMovePosX( evt );//this is needed in touchend for direction
+        let posX = (this.curX - this.startCoords.clientX) / this.winWidth * 100; //% unit
+        this._transformAnimation( posX, 'touchmove' );
+        
+        //async with Header Swipe
+        if( this.props.idClass == 'home-swipe' ){
+            let duration = '0ms';
+            if( this.&remoteSwiper ){
+                //0) Swiper-wrapper Move
+                let unit = this._getUnit();
+                this._setTransform(posX, unit, duration, this.$remoteSwiper);
+                
+                //1) move entire each swiper-slide
+                for(let i=0; i<6; i++){
+                    let $innerSlide = this.$remoteSwiper.children[i].children[0];
+                    let to = this.slideInnerXpos[i] - posX;
+                    if( $innerSlide ) {
+                        this._setTransform( to, unit, duration, $innerSlide );
+                    }
+                }
+            }
+            this.valid = true;//touchEnd can trigger if moving is over;
+            this.isTransition = false;
+        }
+    }
+    _moveDefaultHomeSwipe( evt ) {
+        //save needed position
+        this._setMovePosX( evt );
+        let posX = (this.curX - this.startCoords.clientX) / this.winWidth * 100; //% unit
+        this._transformHeaderAnimation( posX, 'touchmove' );
+        
+        //async with Home Swipe
+        if( this.props.idClass == 'header-swipe' ){
+            let duration = '0ms';
+            if( this.$remoteSwiper ){
+                //0) moveSwiper-wrapper
+                let unit = this._getUnit();
+                this._setTransform(posX, unit, duration, this.$remoteSwiper);
+            }
+            this.valid = true;//touch event can trigger when move is ended
+            this.isTransition = false;
+        }
+    }
 }
+
+
+
+
+
+
+
+
+
+
+
