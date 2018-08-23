@@ -21,10 +21,12 @@ let Utils = {
           curTransform = curStyle.transform || curStyle.webkitTransform;
           if (curTransform.split(',').length > 6) {
               curTransform = curTransform.split(', ').map(function (a) { return a.replace(',', '.'); }).join(', ');
-              transformMatrix = new win.WebKitCSSMatrix(curTransform === 'none' ? '' : curTransform);
           }
+          // Some old versions of Webkit choke when 'none' is passed; pass
+          // empty string instead in this case
+          transformMatrix = new win.WebKitCSSMatrix(curTransform === 'none' ? '' : curTransform);
        } else {
-          transformMatrix = curStyle.MozTransform || curStyle.OTransform || curStyle.MsTransform || curStyle.msTransform || curStyle.transform || curStyle.getPropertValue('transform').replace('translate(', 'matrix(1, 0, 0, 1,');
+          transformMatrix = curStyle.MozTransform || curStyle.OTransform || curStyle.MsTransform || curStyle.msTransform || curStyle.transform || curStyle.getPropertyValue('transform').replace('translate(', 'matrix(1, 0, 0, 1,');
           matrix = transformMatrix.toString().split(',');
        }
     }
@@ -82,7 +84,7 @@ class Swiper extends Component {
        }
 
        this.state = {
-           autoPlay :  this.props.autoPlay
+           autoPlay : this.props.autoPlay
        }
     }
     _update() {
@@ -113,7 +115,7 @@ class Swiper extends Component {
         this.swipeRootElement.removeEventListener("transitionend", this._endTransition, false);
     }
 
-    getRemoteDistance( nextProps )  {
+    getRemoteDistance( nextProps ) {
         this.isRemoteMove = true;
         this.direction = nextProps.direction;
         let distance = (this.direction == 'prev')? this.slideWidth : -this.slideWidth;
@@ -124,23 +126,25 @@ class Swiper extends Component {
     }
     componentWillReceiveProps( nextProps ){
         //home-swipe > touch end 시 실행
-        if( nextProps.triggerSyncMoveEnd != this.props.tirggerSyncMoveEnd ){//triggered Remote Touch End
-            let distance = this.getRemoteDistance(nextProps);
-            this._playMovingForHome( distance, 'touchend' );
+        if( this.props.idClass == 'header-swipe' ){  
+            if( nextProps.triggerSyncMoveEnd != this.props.triggerSyncMoveEnd ){//triggered Remote Touch End
+                let distance = this.getRemoteDistance(nextProps);
+                this._playMovingForHome( distance, 'touchend' );
+            }
         }
         //Nav Click 시 실행
         if( this.props.idClass == 'header-swipe' || this.props.idClass == 'home-swipe' ){
-            if( nextProps.isTriggeredHomeSwipe != this.props.isTriggeredInHomeSwipe ){
+            if( nextProps.isTriggeredInHomeSwipe != this.props.isTriggeredInHomeSwipe ){
                 this.gotoSlide( nextProps.currentTab );
                 //LOGGING
-                if( tbhis.props.idClass == 'home-swipe' ){
+                if( this.props.idClass == 'home-swipe' ) {
                     this._sendLogsNew(nextProps.currentTab)
                 }
             }
         }
 
         if( this.props.idClass == 'app-nav-home' && this.props.currentTab != nextProps.currentTab ){
-            this.gotoPostion(nextProps.initIndex);
+            this.gotoPosition(nextProps.initIndex);
         }
 
         //Swipe 가 화면에 표출될 때만 Auto Play
@@ -170,9 +174,9 @@ class Swiper extends Component {
     _animate({timing, draw, duration}) {
         let start = window.performance.now();
         let animate;
-        this.animationFrame = requestAnimationFrame(animate = (time) => {
+        this.animationFrame = requestAnimationFrame(animate = (time) =>{
             // timeFraction goes from 0 to 1
-            let timeFraction = (time -start) / duration;
+            let timeFraction = (time - start) / duration;
              
             if(timeFraction < 0){
                 timeFraction = 0;
@@ -187,7 +191,7 @@ class Swiper extends Component {
             // calculate the current animation state
             let progress = timing(result);
 
-            draw(progress); // draw if
+            draw(progress); // draw it
 
             if (timeFraction < 1 && this.playAnimation ) {
                 requestAnimationFrame(animate);
@@ -234,7 +238,7 @@ class Swiper extends Component {
                 return;
             }
 
-            let moveCoords = evt.touchs[0];
+            let moveCoords = evt.touches[0];
             this.curX = moveCoords.clientX;
 
             this._validSwipe( moveCoords );//this.isScrolling 셋팅
@@ -257,7 +261,7 @@ class Swiper extends Component {
                     /** Default Mode **/
                     this._moveDefaultSwipe( evt );
                 }
-                this.vaild = true
+                this.valid = true;
             }
         }
         
@@ -287,7 +291,7 @@ class Swiper extends Component {
                 this._freeModeAnimation( evt );//no exec if stop time is long
             } else {
             /** Default **/
-                let distance = this._setDefaultMoveDistance();
+                let distance = this._setDefalutMoveDistance();
                 this._playMoving( distance, 'touchend' );
                 
                 if( this.props.idClass == 'home-swipe' ){
@@ -296,7 +300,7 @@ class Swiper extends Component {
             }           
         }
         
-        this.vaild = true;
+        this.valid = true;
         this.isScrolling = undefined;
         
         if( !this.props.isFreeContainer && this.state.autoPlay ) {
@@ -361,7 +365,7 @@ class Swiper extends Component {
         //async with Header Swipe
         if( this.props.idClass == 'home-swipe' ){
             let duration = '0ms';
-            if( this.&remoteSwiper ){
+            if( this.$remoteSwiper ){
                 //0) Swiper-wrapper Move
                 let unit = this._getUnit();
                 this._setTransform(posX, unit, duration, this.$remoteSwiper);
@@ -397,6 +401,146 @@ class Swiper extends Component {
             this.isTransition = false;
         }
     }
+    
+    //Move Distance
+    _setSohoSwipeMoveDistance( mode ) {
+        let moveDistance = 100 / this.canSwipeNum;
+        
+        if( mode != 'buttonClick' ) {
+            this._setDirection();
+        }
+        moveDistance = ( this.direction == 'next' )? moveDistance * -1 : moveDistance;
+        
+        //set current index
+        if( this.direction == 'next' ){
+            this.currentIndex = this.currentIndex + 1;
+        } else if( this.direction == 'prev' ){
+            this.currentIndex = this.currentIndex - 1;
+        }
+        
+        if( this.direction == 'prev' && this.currentIndex < 0 ){
+            this.currentIndex = 0;
+            moveDistance = 0; //no moving
+        } else if( this.direction == 'next' && this.currentIndex > this.canSwipeNum - 1 ) {
+            this.currentIndex = this.canSwipeNum - 1;
+            moveDistance = 0;
+        }
+        
+        this._sendLogs();
+        this._triggerCurrentSlide();
+        this.sohoStyleCurrentPos += moveDistance;
+        
+        return this.sohoStyleCurrentPos;
+    }
+    _setDefalutMoveDistance() {
+        let delta = this._setDirection();//parseInt( (this.curX - this.startCoords.clientX) / this.winWidth * 100 );
+        let to = 0;
+        if (delta > 25) {
+            to = this.slideWidth; //100 is entire screen
+        } else if (delta < -25) {
+            to = -this.slideWidth;       
+        }
+        return to;
+    }
+    
+    _getTargetIndex( to ) {
+        let nextInx = (this.currentIndex + 1) % this.slides.length;
+        let prevInx = (this.currentIndex - 1 < 0) ? this.slides.length - 1 : this.currentIndex - 1;
+        let index = ( to < 0 )? nextInx : prevInx;
+        if( to == 0 ) {//if to is 0, each slide
+            index = (this.direction == 'next') ? nextInx : prevInx;
+        }
+        return index;
+    }
+    _playMoving( to, mode ) {
+        if( to != 0 ){ //if to is 0, re position not need
+            if( this.props.loop ){//
+                //
+                if( this.swipeRootElement ){
+                    this.swipeRootElement.addEventListener("transitionend", this._endTransition, false);//if last option is true, stopPropergation not work
+                    this.swipeRootElement.eventListnerParam = mode;
+                }               
+            }
+        }
+        
+        this.isTransition = true;
+        this._transformAnimation( to, mode );
+    }
+    _playMovingForHome( to, mode ) {
+        if( to != 0 ){ //if to is 0, re position not need
+            if( this.props.loop ){//
+                //
+                if( this.swipeRootElement ){
+                    this.swipeRootElement.addEventListener("transitionend", this._endTransition, false);//if last option is true, stopPropergation not work
+                    this.swipeRootElement.eventListnerParam = mode;
+                }               
+            }
+        }
+        
+        this.isTransition = true;
+        this._transformHeaderAnimation( to, mode );
+    }
+    // Move Animation
+    _transformHeaderAnimation( to, mode ) {
+        let duration = '0ms';
+        switch( mode ) {
+            case 'touchend':
+                duration = '140ms';
+                break;
+            case 'touchmove':
+                duration = '0ms';
+                break;
+        }
+        
+        //0) Move Swiper-wrapper
+        if( this.swipeRootElement ){
+            let unit = this._getUnit();
+            this._setTransform(to, unit, duration, this.swipeRootElement);
+        }
+        
+        //1) 
+        for(let i=0; i<this.slides.length; i++) {
+            let $innerSlide = this.slides[i].children[0];
+            let posX = this.slideInnerXpos[i] - to;
+            if( $innerSlide ) {
+                let unit = this._getUnit();
+                this._setTransform( posX, unit, duration, $innerSlide );
+            }
+        }
+        
+        this.valid = true;
+        this.isTransition = false;
+    }
+    _transformAnimation( to, mode ) {
+        let duration = '0ms';
+        switch( mode ) {
+            case 'touchend':
+                duration = '140ms';
+                break;
+            case 'autoplay':
+                duratioin = '600ms';
+                break;
+            case 'touchmove':
+                duration = '0ms';
+                break;
+        }
+        
+        if( this.swipeRootElement ){
+            let unit = this._getUnit();
+            this._setTransform(to, unit, duration, this.swipeRootElement);
+        }
+        
+        this.valid = true;
+        this.isTransition = false;     
+    }
+    
+    _setTransform( to, unit, duration, $element) {
+        $element.style.webkitTransform = 'translate3d(' + to + unit + ',0,0)';
+        $element.style.transform = 'translate3d(' + to + unit + ',0,0)';
+        $element.style.transitionDuration = duration;
+        $element.style.transitionTimingFunction = 'cubic-bezier(0.1, 0.57, 0.1, 1)';
+    }
+    
 }
 
 
