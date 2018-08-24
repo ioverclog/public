@@ -975,7 +975,7 @@ class Swiper extends Component {
                        {this.props.isFreeContainer &&
                        <ul ref={el => this.swipeRootElement = el} className='freeModeInit'>
                            {this.props.children}
-                       </ui>}
+                       </ul>}
                        
                        {!this.props.isFreeContainer &&
                        <div className="swiper-wrapper"
