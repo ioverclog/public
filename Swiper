@@ -583,7 +583,7 @@ class Swiper extends Component {
                 let stepDuration = (now.getTime() - lastStepTime.getTime());
                 lastStepTime = now;
                 
-                let newPos = (this.moveLastPos + (speedX + stepDuration));//move position
+                let newPos = (this.moveLastPos + (speedX * stepDuration));//move position
                 
                 if( newPos > this.minXpos ) {
                     newPos = this.minXpos;
@@ -640,7 +640,7 @@ class Swiper extends Component {
         }
     }
     
-    _changePostions() {
+    _chagePositions() {
         let index = this.currentIndex;
         
         if( this.props.loop ) {
@@ -660,7 +660,7 @@ class Swiper extends Component {
                     // next slide
                     slide = this.slides[nextInx];
                     if( slide ) slide.style.left = '100%';
-                } else if( this.direction == ''prev ) {
+                } else if( this.direction == 'prev' ) {
                     // next slide
                     slide = this.slides[nextInx];
                     if( slide ) slide.style.left = '100%';
@@ -731,7 +731,7 @@ class Swiper extends Component {
         if( this.props.pagination ) this._changePagenation();
         
         if( this.swipeRootElement ){
-            this.swipeRootElement.removeEventListener("transitioned", this._endTransition, false);
+            this.swipeRootElement.removeEventListener("transitionend", this._endTransition, false);
             this.swipeRootElement.eventListnerParam = '';
         }
     }
@@ -773,11 +773,11 @@ class Swiper extends Component {
         }
     }
     _setSlidePos() {
-        if( !this.isAbsolutePostioinMode && this.props.idClass != 'soho-swipe' && this.slides.length > 0 ) {
+        if( !this.isAbsolutePostionMode && this.props.idClass != 'soho-swipe' && this.slides.length > 0 ) {
             this.slidesYpos = [];
             this.slides.forEach(( slide, idx )=> {
-                slide.style.transform = ''translate3d(' + (100 * idx) + '%,' + (-100 * idx) + '%,0)';
-                this.slidesYpos.push(-100 * 100)
+                slide.style.transform = 'translate3d(' + (100 * idx) + '%,' + (-100 * idx) + '%,0)';
+                this.slidesYpos.push(-100 * idx)
             });
         }
     }
@@ -794,7 +794,7 @@ class Swiper extends Component {
             if(pageNum > this.props.pageLength ){
                 pageNum = 1;
             }
-            htis.pagenation.querySelector('.current').innerHTML = pageNum;
+            this.pagenation.querySelector('.current').innerHTML = pageNum;
         } else if(!this.isNumberPaging && !this.props.isFreeContainer && this.props.pagination && this.props.pageLength > 1) {
             let pageNation = this.pagenation.children;
             if( this.oldIndex != undefined && pageNation[this.oldIndex]) pageNation[this.oldIndex].classList.remove('active');
@@ -828,7 +828,7 @@ class Swiper extends Component {
                     //in case of auto play
                     this.direction = 'next';
                     if( this.canSwipeNum == 2 ){
-                        this._changePositions();
+                        this._chagePositions();
                     }
                 }
                 let to = ( this.direction == 'next' )? -100 : 100;
@@ -863,12 +863,12 @@ class Swiper extends Component {
             }
         }
     }
-    _setEventPropagetion( evt ) {
+    _setEventPropagation( evt ) {
         if( this.isStopPropagation ) evt.stopPropagation();
     }
     _sendLogsNew( index ){
         const screenID = ['SP001','SP002','SP003','SP004','SP005','SP006'];
-        LogService.screenLoggig(screenID[index])
+        LogService.screenLogging(screenID[index])
     }
     _sendLogs( mode ) {
         if( mode == 'autoplay' ){
@@ -880,7 +880,7 @@ class Swiper extends Component {
             log = {screen:screenId, event:this.props.nextLog};
             AppInfoService.sendlogs(JSON.stringify(log));
         } else if(!!this.props.prevLog && this.direction === 'prev'){
-            log = {screen:screenId, event:this.props.preLog};
+            log = {screen:screenId, event:this.props.prevLog};
             AppInfoService.sendlogs(JSON.stringify(log));
         }
     }
@@ -888,7 +888,7 @@ class Swiper extends Component {
         let direction = this._getDirection();
         if( this.direction != direction ){
             this.direction = direction;
-            if( this.props.children.length > 1 ) this._changePositions();
+            if( this.props.children.length > 1 ) this._chagePositions();
         }
     }
     _getDirection() {
@@ -917,7 +917,7 @@ class Swiper extends Component {
     gotoSlide( index ) {
         if( this.currentIndex != index ){
             this.currentIndex = index;
-            this._changePositions( index );
+            this._chagePositions( index );
         }
     }
     gotoPosition( index ) {
@@ -927,7 +927,7 @@ class Swiper extends Component {
         this._setTransform(to, unit, duration, this.swipeRootElement);
     }
     gotoPrevSlide() {
-        this._gotoPrevSlde();
+        this._gotoPrevSlide();
     }
     gotoNextSlide() {
         this._gotoNextSlide();
@@ -949,7 +949,7 @@ class Swiper extends Component {
     }
     
     render() {
-        let pagenateCircle = [];
+        let paginateCircle = [];
         
         if( this.props.pagination && this.props.pageLength > 0 ){
             for(let index=0; index<this.props.pageLength; index++ ) {
@@ -972,16 +972,16 @@ class Swiper extends Component {
                  onClick={(e)=> this._onClick(e)}
                  className={this.props.idClass}
                  id={this.props.idName}>
-                       {this.props.isFreeContanier &&
+                       {this.props.isFreeContainer &&
                        <ul ref={el => this.swipeRootElement = el} className='freeModeInit'>
                            {this.props.children}
                        </ui>}
                        
-                       {!this.props.isFreeContanier &&
-                       <ul className="swiper-wrapper"
+                       {!this.props.isFreeContainer &&
+                       <div className="swiper-wrapper"
                            ref={el => this.swipeRootElement = el}>
                            {this.props.children}
-                       </ui>}
+                       </div>}
                        
                        {!this.isNumberPaging && !this.props.isFreeContainer && this.props.pagination && this.props.pageLength > 1 && (
                            <div ref={el => this.pagenation = el} className={`event-indicators ${this.props.paginationClass}`}>
@@ -1006,7 +1006,7 @@ Swiper.propTypes = {
     prevLog: PropTypes.string,
     nextLog: PropTypes.string,
     initIndex: PropTypes.number,
-    rendomStart: PropTypes.bool,
+    randomStart: PropTypes.bool,
     onChangeSlide: PropTypes.func
 };
 
@@ -1033,7 +1033,7 @@ const mapStateToProps = (state) => ({
     distance : state.homeTabs.distance,
     direction : state.homeTabs.direction,
     currentTab : state.tabmenus.currentTab,
-    isTriggeredInHomeSwipe : state.tabments.isTriggeredInHomeSwipe
+    isTriggeredInHomeSwipe : state.tabmenus.isTriggeredInHomeSwipe
 });
 
 const mapDispatchToProps = (dispatch) => {
