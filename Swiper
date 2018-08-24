@@ -849,16 +849,202 @@ class Swiper extends Component {
     
     /** ************* Util **************** **/
     _validSwipe( moveCoords ) {
+        if(typeof this.isScrolling === 'undefined') {
+            if(moveCoords.clientX === this.startCoords.pageX){
+                this.isScrolling = false;
+            } else {
+                let diffX = moveCoords.clientX - this.startCoords.pageX;
+                let diffY = moveCoords.clientY - this.startCoords.pageY;
+                
+                if ((diffX * diffX) + (diffY * diffY) >= 25) {
+                    let touchAngle = (Math.atan2(Math.abs(diffY), Math.abs(diffX) * 180) / Math.PI;
+                    this.isScrolling = touchAngle < 45;
+                }
+            }
+        }
+    }
+    _setEventPropagetion( evt ) {
+        if( this.isStopPropagation ) evt.stopPropagation();
+    }
+    _sendLogsNew( index ){
+        const screenID = ['SP001','SP002','SP003','SP004','SP005','SP006'];
+        LogService.screenLoggig(screenID[index])
+    }
+    _sendLogs( mode ) {
+        if( mode == 'autoplay' ){
+            return
+        }
+        let log;
+        let screenId = this.props.screen || LogService.getScreenId();
+        if(!!this.props.nextLog && this.direction === 'next') {
+            log = {screen:screenId, event:this.props.nextLog};
+            AppInfoService.sendlogs(JSON.stringify(log));
+        } else if(!!this.props.prevLog && this.direction === 'prev'){
+            log = {screen:screenId, event:this.props.preLog};
+            AppInfoService.sendlogs(JSON.stringify(log));
+        }
+    }
+    _changeDirection() {
+        let direction = this._getDirection();
+        if( this.direction != direction ){
+            this.direction = direction;
+            if( this.props.children.length > 1 ) this._changePositions();
+        }
+    }
+    _getDirection() {
+        let delta = parseInt(this.curX - this.startCoords.clientX);
+        let direction = '';
         
+        if(delta > 0) {
+            direction = 'prev';
+        } else if (delta < 0) {
+            direction = 'next';
+        } else {
+            direction = '';
+        }
+        return direction;
+    }
+    _getSlides() {
+        if( this.swipeRootElement && this.props.children.length > 0 ) {
+            this.slides = [...this.swipeRootElement.querySelectorAll(':scope > .swiper-slide')];
+            this.slideWidth = 100 * this.slides[0].clientWidth / this.swipeRootElement.clientWidth;
+        }
     }
     
     /** ******************************************** **/
     /** ************* Public Method **************** **/
     /** ******************************************** **/
+    gotoSlide( index ) {
+        if( this.currentIndex != index ){
+            this.currentIndex = index;
+            this._changePositions( index );
+        }
+    }
+    gotoPosition( index ) {
+        let to = (index > 3)? this.maxXpos : this.minXpos, //
+            unit = 'px',
+            duration = '140ms';
+        this._setTransform(to, unit, duration, this.swipeRootElement);
+    }
+    gotoPrevSlide() {
+        this._gotoPrevSlde();
+    }
+    gotoNextSlide() {
+        this._gotoNextSlide();
+    }
+    startAutoPlay() {
+        if( this.state.autoPlay && this.slides.length > 1 ) {
+            this._play();
+        } else {
+            this._pause();
+        }
+    }
+    startExternalAutoPlay() {
+        if( this.props.children.length > 1 ){
+            this.setState({
+                autoPlay : true
+            });
+            this._setAutoPlayInterval();
+        }
+    }
     
+    render() {
+        let pagenateCircle = [];
+        
+        if( this.props.pagination && this.props.pageLength > 0 ){
+            for(let index=0; index<this.props.pageLength; index++ ) {
+                paginateCircle.push(
+                    <li key={index}></li>
+                );
+            }
+        }
+        
+        this.isNumberPaging = false;
+        if( this.props.paginationClass == 'number' || this.props.paginationClass == 'number-all'){
+            this.isNumberPaging = true;
+        }
+        
+        return (
+            <div onTouchStart={(e)=> this._touchStart(e)}
+                 onTouchMove={(e)=> this._touchMove(e)}
+                 onTouchCancel={(e)=> this._touchCancel(e)}
+                 onTouchEnd={(e)=> this._touchEnd(e)}
+                 onClick={(e)=> this._onClick(e)}
+                 className={this.props.idClass}
+                 id={this.props.idName}>
+                       {this.props.isFreeContanier &&
+                       <ul ref={el => this.swipeRootElement = el} className='freeModeInit'>
+                           {this.props.children}
+                       </ui>}
+                       
+                       {!this.props.isFreeContanier &&
+                       <ul className="swiper-wrapper"
+                           ref={el => this.swipeRootElement = el}>
+                           {this.props.children}
+                       </ui>}
+                       
+                       {!this.isNumberPaging && !this.props.isFreeContainer && this.props.pagination && this.props.pageLength > 1 && (
+                           <div ref={el => this.pagenation = el} className={`event-indicators ${this.props.paginationClass}`}>
+                               { paginateCircle }
+                           </div>
+                       )}    
+             </div>    
+        );
+    }
 }
 
+Swiper.propTypes = {
+    isFreeContainer: PropTypes.bool,
+    idClass: PropTypes.string;
+    viewContLength: PropTypes.number,
+    pagination: PropTypes.bool,
+    pageLength: PropTypes.number,
+    paginationClass: PropTypes.string,
+    autoPlay: PropTypes.bool,
+    autoPlayInterval: PropTypes.number,
+    screen: PropTypes.string,
+    prevLog: PropTypes.string,
+    nextLog: PropTypes.string,
+    initIndex: PropTypes.number,
+    rendomStart: PropTypes.bool,
+    onChangeSlide: PropTypes.func
+};
 
+Swiper.defaultProps = {
+    isFreeContainer: false,
+    idClass: '',
+    viewContLength: 1,
+    pagination : false,
+    pageLength : 0,
+    paginationClass : 'dark',
+    autoPlay: false,
+    autoPlayInterval: 3000,
+    screen : '',
+    prevLog : '',
+    nextLog : '',
+    initIndex : 0,
+    loop : true,
+    randomStart : false,
+    onChangeSlide: () => {}
+};
+
+const mapStateToProps = (state) => ({
+    triggerSyncMoveEnd : state.homeTabs.triggerSyncMoveEnd,
+    distance : state.homeTabs.distance,
+    direction : state.homeTabs.direction,
+    currentTab : state.tabmenus.currentTab,
+    isTriggeredInHomeSwipe : state.tabments.isTriggeredInHomeSwipe
+});
+
+const mapDispatchToProps = (dispatch) => {
+    return {
+        actions: {
+            HomeTabs: bindActionCreators(HomeTabsActionCreators,dispatch),
+            TabMenu: bindActionCreators(TabMenuActionCreators, dispatch)
+        }    
+    };
+};
+export default connect(mapStateToProps, mapDispatchToProps, null, {withRef: true})(Swiper);
 
 
 
