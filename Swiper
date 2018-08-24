@@ -708,8 +708,153 @@ class Swiper extends Component {
         }
     }
     _endTransition( event ) {
+        event.stopPropagation();
+        
+        if( !this.props.isFreeContainer ) this._setCurrentIndex();
+        if( this.slides.length > 1 ) this._chagePositions();
+        
+        //the order is important. this code should come under the above code.
+        //in Webkit, the following code executes after all the transforms have been executed
+        this._transformAnimation( 0 );
+        
+        let mode = event.target.eventListnerParam;
+        this._sendLogs( mode );
+        
+        if( this.props.idClass == 'home-swipe' || this.props.idClass == 'header-swipe' ) {
+            if (!this.isRemoteMove) {
+                this.props.actions.TabMenu.changeTabMenu(this.currentIndex, false);
+                this._sendLogsNew(this.currentIndex);
+                this.isRemoteMove = false;
+            }
+        }
+        
+        if( this.props.pagination ) this._changePagenation();
+        
+        if( this.swipeRootElement ){
+            this.swipeRootElement.removeEventListener("transitioned", this._endTransition, false);
+            this.swipeRootElement.eventListnerParam = '';
+        }
+    }
+    
+    _setInitCurrentIndex() {
+        if( this.props.randomStart ){
+            this.currentIndex = Utils.getRandomStart(this.slides.length);   
+        } else {
+            this.currentIndex = this.props.initIndex;
+        }
+    }
+    _setCurrentIndex() {
+        //
+        if( this.direction == '' ){
+            return
+        }
+        
+        this.oldIndex = this.currentIndex;
+        
+        if (this.direction == 'next') {
+            if( this.currentIndex == (this.slides.length-this.props.viewContLength) ) {
+                this.currentIndex = 0;
+            } else {
+                this.currentIndex = this.currentIndex + this.props.viewContLength;
+            }
+        } else if (this.direction == 'prev' ) {
+            if( this.currentIndex == 0 ) {
+                this.currentIndex = this.slides.length - this.props.viewContLength;
+            } else {
+                this.currentIndex = this.currentIndex - this.props.viewContLength;
+            }       
+        }
+    }
+    _changePropsIfSlideOnlyOne() {
+        if( this.slides && this.slides.length == 1 ){
+            this.isStopPropagation = false;
+        } else {
+            this.isStopPropagation = true;
+        }
+    }
+    _setSlidePos() {
+        if( !this.isAbsolutePostioinMode && this.props.idClass != 'soho-swipe' && this.slides.length > 0 ) {
+            this.slidesYpos = [];
+            this.slides.forEach(( slide, idx )=> {
+                slide.style.transform = ''translate3d(' + (100 * idx) + '%,' + (-100 * idx) + '%,0)';
+                this.slidesYpos.push(-100 * 100)
+            });
+        }
+    }
+    
+    /** ************* Parent Function Call **************** **/
+    _triggerCurrentSlide() {
+        if( this.props.onChangeSlide.name != 'onChangeSlide'){
+            this.props.onChangeSlide( this.currentIndex );
+        }
+    }
+    _changePagenation() {
+        if( this.isNumberPaging ) {
+            let pageNum = this.currentIndex + 1;
+            if(pageNum > this.props.pageLength ){
+                pageNum = 1;
+            }
+            htis.pagenation.querySelector('.current').innerHTML = pageNum;
+        } else if(!this.isNumberPaging && !this.props.isFreeContainer && this.props.pagination && this.props.pageLength > 1) {
+            let pageNation = this.pagenation.children;
+            if( this.oldIndex != undefined && pageNation[this.oldIndex]) pageNation[this.oldIndex].classList.remove('active');
+            if( this.currentIndex != undefined && pageNation[this.currentIndex]) pageNation[this.currentIndex].classList.add('active');        
+        }
+    }
+    _remoteTouchEnd( distance ) {
+        if( this.props.idClass == 'home-swipe' ) {
+            let triggerSyncMoveEnd = this.props.triggerSyncMoveEnd * (-1);
+            this.props.actions.HomeTabs.remoteTouchEnd( distance, this.direction, triggerSyncMoveEnd );
+        }
+    }
+    
+    /** ************* Auto Play **************** **/
+    _play() {
+        if( this.state.autoPlay && this.slides.length > 1 && this.interval == null ){
+            this._setAutoPlayInterval();
+        }
+    }
+    _pause() {
+        if( this.interval != null ){
+            clearInterval( this.interval );
+            this.interval = null;
+        }
+    }
+    _setAutoPlayInterval() {
+        if( !this.interval ) {
+            this._pause();
+            this.interval = setInterval(()=>{
+                if( this.direction != 'next' ){
+                    //in case of auto play
+                    this.direction = 'next';
+                    if( this.canSwipeNum == 2 ){
+                        this._changePositions();
+                    }
+                }
+                let to = ( this.direction == 'next' )? -100 : 100;
+                this._playMoving( to, 'autoplay' );
+            }, this.props.autoPlayInterval);
+        }
+    }
+    _gotoNextSlide() {
+        this.direction = 'next';
+        let to = this._setSohoSwipeMoveDistance( 'buttonClick' );
+        this._playMoving( to, 'touchend' );
+    }
+    _gotoPrevSlide() {
+        this.direction = 'prev';
+        let to = this._setSohoSwipeMoveDistance( 'buttonClick' );
+        this._playMoving( to, 'touchend' );
+    }
+    
+    /** ************* Util **************** **/
+    _validSwipe( moveCoords ) {
         
     }
+    
+    /** ******************************************** **/
+    /** ************* Public Method **************** **/
+    /** ******************************************** **/
     
 }
 
