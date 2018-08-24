@@ -1,0 +1,1055 @@
+import React, {Component} from 'react';
+import PropTypes from 'prop-types';
+import LogService from 'services/LogService';
+import {AppInfoService} from 'services/deviceInfo';
+
+import { connect } from 'react-redux';
+import { bindActionCreators } from 'redux';
+import { ActionCreators as HomeTabsActionCreators } from 'app/HomeTab/HomeTabs';
+import { ActionCreators as TabMenuActionCreators } from 'app/common/HomeTabMenu/TabMenus';
+
+let Utils = {
+    getTranslate : (el) => {
+       let matrix;
+       let curTransform;
+       let transformMatrix;
+       let win = window;
+
+       let curStyle = window.getComputedStyle(el, null);
+       
+       if(win.WebKitCSSMatrix) {
+          curTransform = curStyle.transform || curStyle.webkitTransform;
+          if (curTransform.split(',').length > 6) {
+              curTransform = curTransform.split(', ').map(function (a) { return a.replace(',', '.'); }).join(', ');
+          }
+          // Some old versions of Webkit choke when 'none' is passed; pass
+          // empty string instead in this case
+          transformMatrix = new win.WebKitCSSMatrix(curTransform === 'none' ? '' : curTransform);
+       } else {
+          transformMatrix = curStyle.MozTransform || curStyle.OTransform || curStyle.MsTransform || curStyle.msTransform || curStyle.transform || curStyle.getPropertyValue('transform').replace('translate(', 'matrix(1, 0, 0, 1,');
+          matrix = transformMatrix.toString().split(',');
+       }
+    }
+    
+    // Latest Chrome and webkits Fix
+    if (win.WebKitCSSMatrix) { curTransform = transformMatrix.m41; }
+    // Crazy IE10 Matrix
+    else if (matrix.length === 16) { curTransform = parseFloat(matrix[12]); }
+    //Normal Browsers
+    else { curTransform = parseFloat(matrix[4]); }
+
+    //curTransform = Number(window.getComputedStyle(this.swipeRootElement).transform.split(',')[4] || 0) //getComputedStyle 은 PX 값을 return 한다.
+    return curTransform || 0;
+    },
+    getRandomStart : ( length ) => {
+        let index = 0;
+        if( length > 1 ){
+            index = Math.floor((Math.random() * length) + 1) - 1;
+        }
+        return index;
+    }
+};
+
+class Swiper extends Component {
+    constructor(props) { 
+       super(props);
+       
+       this._endTransition = this._endTransition.bind(this);
+      
+       this.winWidth = window.innerWidth;
+       this.interval = null;
+       this.valid = true;
+       this.isTransition = false;
+       this.currentIndex = 0;
+
+       this.slides = [];
+       this.slideInnerXpos = [];
+       
+       this.swipeRootElement = null;//ref element 저장 //componentDidMount 이후 실행됨
+       this.$remoteSwiper = null;
+       this.direction = 'next';
+
+       this.isStopPropagation = true;
+       this.animationFrame = null;
+
+       this.isScrolling = undefined;//touchMove 시 1회만 발생
+       this.isRemoteMove = false;
+  
+       //no loop일 경우, touch start할 때, 최초 위치값을 구하기 위해 필요하다. 기존 값 + 현재 값.
+       this.sohoStyleCurrentPos = 0;
+       this.playAnimation = true;
+
+       if(this.props.idClass.indexOf('search-tab-swipe') > -1){
+           this.isAbsolutePostionMode = true;
+       }
+
+       this.state = {
+           autoPlay : this.props.autoPlay
+       }
+    }
+    _update() {
+        if( !this.props.isFreeContainer ) {
+            this._getSlides();
+            this._setSlidePos();//최초 1회 필요 (change position mode일 때)
+            this._changePropsIfSlideOnlyOne();//Slide가 1개일 때
+            // Position 초기화
+            this._setInitCurrentIndex();
+            this._changePagenation();
+            this.startAutoPlay();
+            if( this.slides.length > 1 ) this._chagePositions();
+            //this.lastSwipeLength = this.props.children.length % this.props.viewContLength;//전체 개수 / 화면 표출 개수
+            this.canSwipeNum = Math.ceil(this.slides.length / this.props.viewContLength); //Swipe 가능 개수
+        }
+
+        this.minXpos = 0;
+        this.maxXpos = -(this.swipeRootElement.clientWidth - this.winWidth);
+    }
+
+    /** *********** Life Cycle *********** **/
+    componentDidMount(){
+        this._update();
+    }
+    componentWillUnmount() {
+        this._pause();
+        this._stopTransform();
+        this.swipeRootElement.removeEventListener("transitionend", this._endTransition, false);
+    }
+
+    getRemoteDistance( nextProps ) {
+        this.isRemoteMove = true;
+        this.direction = nextProps.direction;
+        let distance = (this.direction == 'prev')? this.slideWidth : -this.slideWidth;
+        if( nextProps.distance == 0 ){
+            distance = 0;
+        }
+        return distance
+    }
+    componentWillReceiveProps( nextProps ){
+        //home-swipe > touch end 시 실행
+        if( this.props.idClass == 'header-swipe' ){  
+            if( nextProps.triggerSyncMoveEnd != this.props.triggerSyncMoveEnd ){//triggered Remote Touch End
+                let distance = this.getRemoteDistance(nextProps);
+                this._playMovingForHome( distance, 'touchend' );
+            }
+        }
+        //Nav Click 시 실행
+        if( this.props.idClass == 'header-swipe' || this.props.idClass == 'home-swipe' ){
+            if( nextProps.isTriggeredInHomeSwipe != this.props.isTriggeredInHomeSwipe ){
+                this.gotoSlide( nextProps.currentTab );
+                //LOGGING
+                if( this.props.idClass == 'home-swipe' ) {
+                    this._sendLogsNew(nextProps.currentTab)
+                }
+            }
+        }
+
+        if( this.props.idClass == 'app-nav-home' && this.props.currentTab != nextProps.currentTab ){
+            this.gotoPosition(nextProps.initIndex);
+        }
+
+        //Swipe 가 화면에 표출될 때만 Auto Play
+        if( this.props.idClass == 'home-event' ){
+            if( nextProps.currentTab == 0 ){
+                this.startExternalAutoPlay();
+            } else {
+                this._pause();
+            }
+        }
+
+        if( this.props.idClass == 'style-mds-pick' ){
+            if( nextProps.currentTab == 5 ){
+                this.startExternalAutoPlay();
+            } else {
+                this._pause();
+            }
+        }
+    }
+    componentDidUpdate( prevProps, prevStat ){
+         //TODO 최적화 필요
+         if(this.slides.length != this.swipeRootElement.children.length){
+             this._update();
+         }
+    }
+
+    _animate({timing, draw, duration}) {
+        let start = window.performance.now();
+        let animate;
+        this.animationFrame = requestAnimationFrame(animate = (time) =>{
+            // timeFraction goes from 0 to 1
+            let timeFraction = (time - start) / duration;
+             
+            if(timeFraction < 0){
+                timeFraction = 0;
+            }
+
+            if (timeFraction > 1) {
+                timeFraction = 1;
+            }
+
+            let result = 100 - (timeFraction * 100);
+
+            // calculate the current animation state
+            let progress = timing(result);
+
+            draw(progress); // draw it
+
+            if (timeFraction < 1 && this.playAnimation ) {
+                requestAnimationFrame(animate);
+            }
+        });
+    }
+    _stopAnimation() {
+        this.playAnimation = false;
+        if( this.animationFrame ){
+            cancelAnimationFrame(this.animationFrame);
+        }
+    }
+
+    /** ******* Event Listener ******** **/
+    _touchStart(evt) {
+        this._stopAnimation();//for javascript freemode
+        this._pause();//stop auto play
+
+        if( this.props.idClass == 'header-swipe' || this.isTransition ){
+            return;
+        }
+   
+        if ( this.props.children.length > 1 && this.valid ) {
+            this.startCoords = evt.touches[0];
+            this.curX = this.startCoords.clientX;
+            this.startEvent = Object.assign({}, evt);
+
+            /** For Free Mode **/
+            if( this.props.isFreeContainer || this.props.idClass == 'soho-swipe' ) {
+                this.currentXpos = Utils.getTranslate( this.swipeRootElement );
+            }
+        }
+
+        if( !this.$remoteSwiper && this.props.idClass == 'home-swipe' ){
+            this.$remoteSwiper = document.querySelector('.header-swipe > .swiper-wrapper');
+        }
+
+        this.valid = false;
+        this._setEventPropagation( evt );
+    }
+    _touchMove(evt) {
+        if ( this.props.children.length > 1 ) {
+            if( this.props.idClass == 'header-swipe' || this.isTransition ){
+                return;
+            }
+
+            let moveCoords = evt.touches[0];
+            this.curX = moveCoords.clientX;
+
+            this._validSwipe( moveCoords );//this.isScrolling 셋팅
+            
+            if( this.isScrolling ){
+                if( !this.props.loop ){
+                    /** Style 탭 > Swipe **/
+                    this._moveSohoSwipe( evt );
+ 
+                } else if( this.props.isFreeContainer ) {
+                    /** Free Mode **/
+                    this._stopAnimation();
+                    this._moveFreeScroll( evt );
+               
+                } else {
+                    //For Two Slide
+                    if( this.canSwipeNum == 2 ){
+                        this._changeDirection();
+                    }
+                    /** Default Mode **/
+                    this._moveDefaultSwipe( evt );
+                }
+                this.valid = true;
+            }
+        }
+        
+        this._setEventPropagation( evt );
+    }
+    _touchCancel() {
+        this.valid = false;
+        this.isTransition = false;
+    }
+    _touchEnd(evt) {
+        if ( this.props.children.length > 1 && this.valid ) {
+            if( this.props.idClass == 'header-swipe' || this.isTransition ){
+                return;
+            }
+            
+            let endCoords = evt.changedTouches[0];
+            this.curX = endCoords.clientX;
+            
+            /** Style > 3개 Swipe **/
+            if( !this.props.loop ){
+                let distance = this._setSohoSwipeMoveDistance();
+                this._playMoving( distance, 'touchend' );
+                
+            } else if( this.props.isFreeContainer ){
+            /** For Free Mode **/
+                this._stopAnimation();
+                this._freeModeAnimation( evt );//정지 시간이 길면 비실행
+            } else {
+            /** Default **/
+                let distance = this._setDefalutMoveDistance();
+                this._playMoving( distance, 'touchend' );
+                
+                if( this.props.idClass == 'home-swipe' ){
+                    this._remoteTouchEnd( distance );
+                }
+            }           
+        }
+        
+        this.valid = true;
+        this.isScrolling = undefined;
+        
+        if( !this.props.isFreeContainer && this.state.autoPlay ) {
+            this._play();
+        }
+        
+        this._setEventPropagation( evt );
+    }
+    //상품 클릭, 새 창 뜨면, auto swipe가 멈추는 것 해결
+    _onClick(evt) {
+        evt.preventDefault();
+        evt.stopPropagation();
+        
+        if( !this.props.isFreeContainer && this.props.idClass != 'header-swipe' ) {
+            this._play();
+        }
+    }
+    
+    /** ***************** Private Method ***************** **/
+    //TouchMove Type
+    _moveSohoSwipe( evt ) {
+        //필요 좌표 저장
+        this._setMovePosX( evt );//touch end에서 direction 위해 필요
+        
+        let easing = 0.43;
+        let posX = (this.curX - this.startCoords.clientX) / this.winWidth * 100 * easing; //%단위
+        
+        //Soho Swipe
+        posX = posX + this.sohoStyleCurrentPos; //% 단위 (화면전체가 100%)
+        
+        // 2) 이동 컨트롤
+        let checkPosX = (this.curX - this.startCoords.clientX); //PX 단위
+        checkPosX = checkPosX + this.currentXpos;//현재 transform X 위치
+        
+        //좌, 우 No Scroll
+        if( checkPosX < this.minXpos && checkPosX > this.maxXpos ){//(PX 단위)
+            this._transformAnimation( posX, 'touchmove' );//% 단위
+        }
+    }
+    _moveFreeScroll( evt ) {
+        this._setMovePosX( evt );// animation 에서 direction 위해 필요
+        
+        // 2) 이동 컨트롤
+        let posX = (this.curX - this.startCoords.clientX) + this.currentXpos; //PX 단위
+        
+        //Move 최종값 저장 (free animation 에서 사용)
+        this.moveLastPos = posX;
+        
+        //좌, 우 No Scroll
+        if( posX <= this.minXpos && posX >= this.maxXpos ){
+            this._transformAnimation( posX, 'touchmove' );
+        } else {
+            evt.preventedByNestedSwiper = true;
+        }
+    }
+    _moveDefaultSwipe( evt ) {
+        //필요 좌표 저장
+        this._setMovePosX( evt );//touch end 에서 direction 위해 필요
+        let posX = (this.curX - this.startCoords.clientX) / this.winWidth * 100; //% unit
+        this._transformAnimation( posX, 'touchmove' );
+        
+        //Header Swipe 와 동기화
+        if( this.props.idClass == 'home-swipe' ){
+            let duration = '0ms';
+            if( this.$remoteSwiper ){
+                //0) Swiper-wrapper 이동
+                let unit = this._getUnit();
+                this._setTransform(posX, unit, duration, this.$remoteSwiper);
+                
+                //1) 각각의 swiper-slide 전체 이동
+                for(let i=0; i<6; i++){
+                    let $innerSlide = this.$remoteSwiper.children[i].children[0];
+                    let to = this.slideInnerXpos[i] - posX;
+                    if( $innerSlide ) {
+                        this._setTransform( to, unit, duration, $innerSlide );
+                    }
+                }
+            }
+            this.valid = true;//동작 끝나면 touch Event 가능
+            this.isTransition = false;
+        }
+    }
+    _moveDefaultHomeSwipe( evt ) {
+        //필요 좌표 저장
+        this._setMovePosX( evt );//touch end에서 direction 위해 필요
+        let posX = (this.curX - this.startCoords.clientX) / this.winWidth * 100; //% 단위
+        this._transformHeaderAnimation( posX, 'touchmove' );
+        
+        //Home Swipe 와 동기화
+        if( this.props.idClass == 'header-swipe' ){
+            let duration = '0ms';
+            if( this.$remoteSwiper ){
+                //0) Swiper-wrapper 이동
+                let unit = this._getUnit();
+                this._setTransform(posX, unit, duration, this.$remoteSwiper);
+            }
+            this.valid = true;//동작 끝나면 touch event 가능
+            this.isTransition = false;
+        }
+    }
+    
+    //Move Distance
+    _setSohoSwipeMoveDistance( mode ) {
+        let moveDistance = 100 / this.canSwipeNum;
+        
+        if( mode != 'buttonClick' ) {
+            this._setDirection();
+        }
+        moveDistance = ( this.direction == 'next' )? moveDistance * -1 : moveDistance;
+        
+        //set current index
+        if( this.direction == 'next' ){
+            this.currentIndex = this.currentIndex + 1;
+        } else if( this.direction == 'prev' ){
+            this.currentIndex = this.currentIndex - 1;
+        }
+        
+        if( this.direction == 'prev' && this.currentIndex < 0 ){
+            this.currentIndex = 0;
+            moveDistance = 0; //움직이지 않음
+        } else if( this.direction == 'next' && this.currentIndex > this.canSwipeNum - 1 ) {
+            this.currentIndex = this.canSwipeNum - 1;
+            moveDistance = 0;
+        }
+        
+        this._sendLogs();
+        this._triggerCurrentSlide();
+        this.sohoStyleCurrentPos += moveDistance;
+        
+        return this.sohoStyleCurrentPos;
+    }
+    _setDefalutMoveDistance() {
+        let delta = this._setDirection();//parseInt( (this.curX - this.startCoords.clientX) / this.winWidth * 100 );
+        let to = 0;
+        if (delta > 25) {
+            to = this.slideWidth; //100 이 화면 전체
+        } else if (delta < -25) {
+            to = -this.slideWidth;       
+        }
+        return to;
+    }
+    
+    _getTargetIndex( to ) {
+        let nextInx = (this.currentIndex + 1) % this.slides.length;
+        let prevInx = (this.currentIndex - 1 < 0) ? this.slides.length - 1 : this.currentIndex - 1;
+        let index = ( to < 0 )? nextInx : prevInx;
+        if( to == 0 ) {//to가 0일 경우 slide 개별적으로
+            index = (this.direction == 'next') ? nextInx : prevInx;
+        }
+        return index;
+    }
+    _playMoving( to, mode ) {
+        if( to != 0 ){ //to가 0일 경우 re position 불필요
+            if( this.props.loop ){// loop false 인 경우 (soho swipe, free mode (_playMoving 사용하지 않음))
+                //transition 완료 후, re position이 필요한 방식일 경우에만 Listener 등록
+                if( this.swipeRootElement ){
+                    this.swipeRootElement.addEventListener("transitionend", this._endTransition, false);//if last option is true, stopPropergation not work
+                    this.swipeRootElement.eventListnerParam = mode;
+                }               
+            }
+        }
+        
+        this.isTransition = true;
+        this._transformAnimation( to, mode );
+    }
+    _playMovingForHome( to, mode ) {
+        if( to != 0 ){ //to가 0일 경우, re position 불필요
+            if( this.props.loop ){// loop false 인 경우 (soho swipe, free mode (_playMoving 사용하지 않음))
+                //transition 완료 후, re position이 필요한 방식일 경우에만 Listener 등록
+                if( this.swipeRootElement ){
+                    this.swipeRootElement.addEventListener("transitionend", this._endTransition, false);//if last option is true, stopPropergation not work
+                    this.swipeRootElement.eventListnerParam = mode;
+                }               
+            }
+        }
+        
+        this.isTransition = true;
+        this._transformHeaderAnimation( to, mode );
+    }
+    // Move Animation
+    _transformHeaderAnimation( to, mode ) {
+        let duration = '0ms';
+        switch( mode ) {
+            case 'touchend':
+                duration = '140ms';
+                break;
+            case 'touchmove':
+                duration = '0ms';
+                break;
+        }
+        
+        //0) Swiper-wrapper 이동
+        if( this.swipeRootElement ){
+            let unit = this._getUnit();
+            this._setTransform(to, unit, duration, this.swipeRootElement);
+        }
+        
+        //1) 각각의 swiper-slide 전체 이동
+        for(let i=0; i<this.slides.length; i++) {
+            let $innerSlide = this.slides[i].children[0];
+            let posX = this.slideInnerXpos[i] - to;
+            if( $innerSlide ) {
+                let unit = this._getUnit();
+                this._setTransform( posX, unit, duration, $innerSlide );
+            }
+        }
+        
+        this.valid = true;//동작 끝나면 Touch Event 가능
+        this.isTransition = false;
+    }
+    _transformAnimation( to, mode ) {
+        let duration = '0ms';
+        switch( mode ) {
+            case 'touchend':
+                duration = '140ms';
+                break;
+            case 'autoplay':
+                duration = '600ms';
+                break;
+            case 'touchmove':
+                duration = '0ms';
+                break;
+        }
+        
+        if( this.swipeRootElement ){
+            let unit = this._getUnit();
+            this._setTransform(to, unit, duration, this.swipeRootElement);
+        }
+        
+        this.valid = true;
+        this.isTransition = false;     
+    }
+    
+    _setTransform( to, unit, duration, $element) {
+        $element.style.webkitTransform = 'translate3d(' + to + unit + ',0,0)';
+        $element.style.transform = 'translate3d(' + to + unit + ',0,0)';
+        $element.style.transitionDuration = duration;
+        $element.style.transitionTimingFunction = 'cubic-bezier(0.1, 0.57, 0.1, 1)';
+    }
+    _freeModeAnimation( evt ) {
+        let lastEvent = (this.moveEvent)? this.moveEvent.shift() : undefined;
+        if (!lastEvent){
+            return;
+        }
+        // X 위치 보정 (this.curX : touchEnd position)
+        let deltaX = (this.curX - lastEvent.changedTouches[0].clientX);
+        // 시간 계산
+        let deltaMS = parseInt(
+            Math.max((evt.timeStamp - lastEvent.timeStamp), 1)
+        );
+        if( deltaMS > 240 ){
+            return
+        }
+        // Speed 계산
+        let maxSpeed = 3;
+        let durationRate = 1000;
+        let speedX = Math.max(
+            Math.min( (deltaX / deltaMS), maxSpeed ),
+            -maxSpeed
+        );
+        // 필요
+        let stopTimeCount = 0;
+        let lastStepTime = new Date();
+        this.playAnimation = true;
+        
+        // animation
+        this._animate({
+            duration: Math.abs( speedX ) * durationRate,
+            timing: (timeFraction)=>{
+                return timeFraction;
+            },
+            draw: (currentStep)=>{
+                if( !this.playAnimation ){
+                    return
+                }
+                
+                speedX *= (currentStep / 100);
+                
+                let now = new Date();
+                let stepDuration = (now.getTime() - lastStepTime.getTime());
+                lastStepTime = now;
+                
+                let newPos = (this.moveLastPos + (speedX * stepDuration));//이동 위치
+                
+                if( newPos > this.minXpos ) {
+                    newPos = this.minXpos;
+                } else if( newPos < this.maxXpos ) {
+                    newPos = this.maxXpos;
+                }
+                
+                this.swipeRootElement.style.transitionDuration = '0ms';
+                this.swipeRootElement.style.transform = 'translate3d(' + newPos + 'px,0,0)';
+                
+                if( newPos == this.minXpos || newPos == this.maxXpos || stopTimeCount > 1){
+                    this._stopAnimation();
+                    return
+                }
+                
+                if( this.moveLastPos == newPos ){
+                    stopTimeCount++;
+                }
+                
+                this.moveLastPos = newPos;
+            }
+        });
+    }
+    _stopTransform() {
+        if( this.swipeRootElement ){
+            this.swipeRootElement.style.transform = 'none';
+            this.swipeRootElement.style.webkitTransform = 'none';
+        }
+    }
+    
+    _getUnit() {
+        let unit = ( this.props.isFreeContainer )? 'px' : '%'; //scrollX, display: table 일 때, px 단위
+        return unit;
+    }
+    _setMovePosX( evt ) {
+        // 1) 필요좌표 저장
+        let mouseEvents = [this.startEvent];
+        if( parseInt(evt.timeStamp - mouseEvents[ mouseEvents.length - 1 ].timeStamp) > 40 ){
+            //
+            mouseEvents.push( evt );
+            if (mouseEvents.length > 2){
+                // Remove the oldest event.
+                mouseEvents.shift();
+            }
+            this.moveEvent = mouseEvents;
+        }
+    }
+    _setDirection() {
+        if( this.moveEvent && this.moveEvent.length > 0 ){
+            let lastEvent = this.moveEvent.shift();
+            let deltaX = (this.curX - lastEvent.changedTouches[0].clientX);
+            this.direction = (deltaX < 0)? 'next' : 'prev';
+            return deltaX;
+        }
+    }
+    
+    _chagePositions() {
+        let index = this.currentIndex;
+        
+        if( this.props.loop ) {
+            let nextInx = (index + 1) % this.slides.length;
+            let prevInx = (index - 1 < 0) ? this.slides.length - 1 : index - 1;
+            let slide = null;
+            
+            if( this.isAbsolutePostionMode ){
+                //검색 페이지에서 필요.
+                this.slides.forEach(( slide, idx )=>{
+                    slide.style.left = '-200%';
+                });
+                if( this.direction == 'next' ){
+                    // prev slide
+                    slide = this.slides[prevInx];
+                    if( slide ) slide.style.left = '-100%';
+                    // next slide
+                    slide = this.slides[nextInx];
+                    if( slide ) slide.style.left = '100%';
+                } else if( this.direction == 'prev' ) {
+                    // next slide
+                    slide = this.slides[nextInx];
+                    if( slide ) slide.style.left = '100%';
+                    // prev slide
+                    slide = this.slides[prevInx];
+                    if( slide ) slide.style.left = '-100%';
+                }
+                // active slide
+                slide = this.slides[index];
+                if( slide ) slide.style.left = '0%';
+            } else {
+                
+                if( this.slides.length > 0 ){
+                    this.slides.forEach(( slide, idx )=>{
+                        let posX;
+                        if( idx == index ){
+                            posX = 0;
+                        } else if( idx == nextInx ){
+                            posX = 100;
+                        } else if( idx == prevInx ){
+                            posX = -100;
+                        } else {
+                            posX = (idx - index) * 100;
+                        }
+                        
+                        slide.style.transform = 'translate3d(' + posX + '%, 0, 0)';
+                        
+                        //HEADER SWIPE 전용
+                        posX = -1 * posX;
+                        if( this.props.idClass == 'header-swipe' ){
+                            let innerSlide = slide.children[0];
+                            innerSlide.style.transform = 'translate3d(' + posX + '%, 0, 0)';
+                            innerSlide.style.transitionDuration = '0ms';
+                        }
+                        
+                        this.slideInnerXpos[idx] = posX;
+                    });
+                    
+                    if( this.direction == 'prev' ) {                    
+                        this.slides[nextInx].style.transform = 'translate3d(100%, 0, 0)';
+                        this.slides[prevInx].style.transform = 'translate3d(-100%, 0, 0)';
+                    }
+                }
+            }
+        }
+    }
+    _endTransition( event ) {
+        event.stopPropagation();
+        
+        if( !this.props.isFreeContainer ) this._setCurrentIndex();//1) index 선택
+        if( this.slides.length > 1 ) this._chagePositions();//$swiper.realIndex
+        
+        //the order is important. this code should come under the above code.
+        //in Webkit, the following code executes after all the transforms have been executed
+        this._transformAnimation( 0 );
+        
+        let mode = event.target.eventListnerParam;
+        this._sendLogs( mode );
+        
+        if( this.props.idClass == 'home-swipe' || this.props.idClass == 'header-swipe' ) {
+            if (!this.isRemoteMove) {
+                this.props.actions.TabMenu.changeTabMenu(this.currentIndex, false);
+                this._sendLogsNew(this.currentIndex);
+                this.isRemoteMove = false;
+            }
+        }
+        
+        if( this.props.pagination ) this._changePagenation();
+        
+        if( this.swipeRootElement ){
+            this.swipeRootElement.removeEventListener("transitionend", this._endTransition, false);
+            this.swipeRootElement.eventListnerParam = '';
+        }
+    }
+    
+    _setInitCurrentIndex() {
+        if( this.props.randomStart ){
+            this.currentIndex = Utils.getRandomStart(this.slides.length);   
+        } else {
+            this.currentIndex = this.props.initIndex;
+        }
+    }
+    _setCurrentIndex() {
+        //원 위치로 돌아갔을 때는 index 변경 없다.
+        if( this.direction == '' ){
+            return
+        }
+        
+        this.oldIndex = this.currentIndex;
+        
+        if (this.direction == 'next') {
+            if( this.currentIndex == (this.slides.length-this.props.viewContLength) ) {
+                this.currentIndex = 0;
+            } else {
+                this.currentIndex = this.currentIndex + this.props.viewContLength;
+            }
+        } else if (this.direction == 'prev' ) {
+            if( this.currentIndex == 0 ) {
+                this.currentIndex = this.slides.length - this.props.viewContLength;
+            } else {
+                this.currentIndex = this.currentIndex - this.props.viewContLength;
+            }       
+        }
+    }
+    _changePropsIfSlideOnlyOne() {
+        if( this.slides && this.slides.length == 1 ){
+            this.isStopPropagation = false;
+        } else {
+            this.isStopPropagation = true;
+        }
+    }
+    _setSlidePos() {
+        if( !this.isAbsolutePostionMode && this.props.idClass != 'soho-swipe' && this.slides.length > 0 ) {
+            this.slidesYpos = [];
+            this.slides.forEach(( slide, idx )=> {
+                slide.style.transform = 'translate3d(' + (100 * idx) + '%,' + (-100 * idx) + '%,0)';
+                this.slidesYpos.push(-100 * idx)
+            });
+        }
+    }
+    
+    /** ************* Parent Function Call **************** **/
+    _triggerCurrentSlide() {
+        if( this.props.onChangeSlide.name != 'onChangeSlide'){
+            this.props.onChangeSlide( this.currentIndex );
+        }
+    }
+    _changePagenation() {
+        if( this.isNumberPaging ) {
+            let pageNum = this.currentIndex + 1;
+            if(pageNum > this.props.pageLength ){
+                pageNum = 1;
+            }
+            this.pagenation.querySelector('.current').innerHTML = pageNum;
+        } else if(!this.isNumberPaging && !this.props.isFreeContainer && this.props.pagination && this.props.pageLength > 1) {
+            let pageNation = this.pagenation.children;
+            if( this.oldIndex != undefined && pageNation[this.oldIndex]) pageNation[this.oldIndex].classList.remove('active');
+            if( this.currentIndex != undefined && pageNation[this.currentIndex]) pageNation[this.currentIndex].classList.add('active');        
+        }
+    }
+    _remoteTouchEnd( distance ) {
+        if( this.props.idClass == 'home-swipe' ) {
+            let triggerSyncMoveEnd = this.props.triggerSyncMoveEnd * (-1);
+            this.props.actions.HomeTabs.remoteTouchEnd( distance, this.direction, triggerSyncMoveEnd );
+        }
+    }
+    
+    /** ************* Auto Play **************** **/
+    _play() {
+        if( this.state.autoPlay && this.slides.length > 1 && this.interval == null ){
+            this._setAutoPlayInterval();
+        }
+    }
+    _pause() {
+        if( this.interval != null ){
+            clearInterval( this.interval );
+            this.interval = null;
+        }
+    }
+    _setAutoPlayInterval() {
+        if( !this.interval ) {
+            this._pause();
+            this.interval = setInterval(()=>{
+                if( this.direction != 'next' ){
+                    //in case of auto play
+                    this.direction = 'next';
+                    if( this.canSwipeNum == 2 ){
+                        this._chagePositions();
+                    }
+                }
+                let to = ( this.direction == 'next' )? -100 : 100;
+                this._playMoving( to, 'autoplay' );
+            }, this.props.autoPlayInterval);
+        }
+    }
+    _gotoNextSlide() {
+        this.direction = 'next';
+        let to = this._setSohoSwipeMoveDistance( 'buttonClick' );
+        this._playMoving( to, 'touchend' );
+    }
+    _gotoPrevSlide() {
+        this.direction = 'prev';
+        let to = this._setSohoSwipeMoveDistance( 'buttonClick' );
+        this._playMoving( to, 'touchend' );
+    }
+    
+    /** ************* Util **************** **/
+    _validSwipe( moveCoords ) {
+        if(typeof this.isScrolling === 'undefined') {
+            if(moveCoords.clientX === this.startCoords.pageX){
+                this.isScrolling = false;
+            } else {
+                let diffX = moveCoords.clientX - this.startCoords.pageX;
+                let diffY = moveCoords.clientY - this.startCoords.pageY;
+                
+                if ((diffX * diffX) + (diffY * diffY) >= 25) {
+                    let touchAngle = (Math.atan2(Math.abs(diffY), Math.abs(diffX) * 180) / Math.PI;
+                    this.isScrolling = touchAngle < 45;
+                }
+            }
+        }
+    }
+    _setEventPropagation( evt ) {
+        if( this.isStopPropagation ) evt.stopPropagation();
+    }
+    _sendLogsNew( index ){
+        const screenID = ['SP001','SP002','SP003','SP004','SP005','SP006'];
+        LogService.screenLogging(screenID[index])
+    }
+    _sendLogs( mode ) {
+        if( mode == 'autoplay' ){//자동 slide일 때는 log를 날리지 않는다.
+            return
+        }
+        let log;
+        let screenId = this.props.screen || LogService.getScreenId();
+        if(!!this.props.nextLog && this.direction === 'next') {
+            log = {screen:screenId, event:this.props.nextLog};
+            AppInfoService.sendlogs(JSON.stringify(log));
+        } else if(!!this.props.prevLog && this.direction === 'prev'){
+            log = {screen:screenId, event:this.props.prevLog};
+            AppInfoService.sendlogs(JSON.stringify(log));
+        }
+    }
+    _changeDirection() {
+        let direction = this._getDirection();
+        if( this.direction != direction ){
+            this.direction = direction;
+            if( this.props.children.length > 1 ) this._chagePositions();
+        }
+    }
+    _getDirection() {
+        let delta = parseInt(this.curX - this.startCoords.clientX);
+        let direction = '';
+        
+        if(delta > 0) {
+            direction = 'prev';
+        } else if (delta < 0) {
+            direction = 'next';
+        } else {
+            direction = '';
+        }
+        return direction;
+    }
+    _getSlides() {
+        if( this.swipeRootElement && this.props.children.length > 0 ) {
+            this.slides = [...this.swipeRootElement.querySelectorAll(':scope > .swiper-slide')];
+            this.slideWidth = 100 * this.slides[0].clientWidth / this.swipeRootElement.clientWidth;
+        }
+    }
+    
+    /** ******************************************** **/
+    /** ************* Public Method **************** **/
+    /** ******************************************** **/
+    gotoSlide( index ) {
+        if( this.currentIndex != index ){
+            this.currentIndex = index;
+            this._chagePositions( index );
+        }
+    }
+    gotoPosition( index ) {
+        let to = (index > 3)? this.maxXpos : this.minXpos, //일단 제일 끝으로..
+            unit = 'px',
+            duration = '140ms';
+        this._setTransform(to, unit, duration, this.swipeRootElement);
+    }
+    gotoPrevSlide() {
+        this._gotoPrevSlide();
+    }
+    gotoNextSlide() {
+        this._gotoNextSlide();
+    }
+    startAutoPlay() {
+        if( this.state.autoPlay && this.slides.length > 1 ) {
+            this._play();
+        } else {
+            this._pause();
+        }
+    }
+    startExternalAutoPlay() {
+        if( this.props.children.length > 1 ){
+            this.setState({
+                autoPlay : true
+            });
+            this._setAutoPlayInterval();
+        }
+    }
+    
+    render() {
+        let paginateCircle = [];
+        
+        if( this.props.pagination && this.props.pageLength > 0 ){
+            for(let index=0; index<this.props.pageLength; index++ ) {
+                paginateCircle.push(
+                    <li key={index}></li>
+                );
+            }
+        }
+        
+        this.isNumberPaging = false;
+        if( this.props.paginationClass == 'number' || this.props.paginationClass == 'number-all'){
+            this.isNumberPaging = true;
+        }
+        
+        return (
+            <div onTouchStart={(e)=> this._touchStart(e)}
+                 onTouchMove={(e)=> this._touchMove(e)}
+                 onTouchCancel={(e)=> this._touchCancel(e)}
+                 onTouchEnd={(e)=> this._touchEnd(e)}
+                 onClick={(e)=> this._onClick(e)}
+                 className={this.props.idClass}
+                 id={this.props.idName}>
+                       {this.props.isFreeContainer &&
+                       <ul ref={el => this.swipeRootElement = el} className='freeModeInit'>
+                           {this.props.children}
+                       </ui>}
+                       
+                       {!this.props.isFreeContainer &&
+                       <div className="swiper-wrapper"
+                           ref={el => this.swipeRootElement = el}>
+                           {this.props.children}
+                       </div>}
+                       
+                       {!this.isNumberPaging && !this.props.isFreeContainer && this.props.pagination && this.props.pageLength > 1 && (
+                           <div ref={el => this.pagenation = el} className={`event-indicators ${this.props.paginationClass}`}>
+                               { paginateCircle }
+                           </div>
+                       )}    
+             </div>    
+        );
+    }
+}
+
+Swiper.propTypes = {
+    isFreeContainer: PropTypes.bool,
+    idClass: PropTypes.string;
+    viewContLength: PropTypes.number,
+    pagination: PropTypes.bool,
+    pageLength: PropTypes.number,
+    paginationClass: PropTypes.string,
+    autoPlay: PropTypes.bool,
+    autoPlayInterval: PropTypes.number,
+    screen: PropTypes.string,
+    prevLog: PropTypes.string,
+    nextLog: PropTypes.string,
+    initIndex: PropTypes.number,
+    randomStart: PropTypes.bool,
+    onChangeSlide: PropTypes.func
+};
+
+Swiper.defaultProps = {
+    isFreeContainer: false,
+    idClass: '',
+    viewContLength: 1,
+    pagination : false,
+    pageLength : 0,
+    paginationClass : 'dark',
+    autoPlay: false,
+    autoPlayInterval: 3000,
+    screen : '',
+    prevLog : '',
+    nextLog : '',
+    initIndex : 0,
+    loop : true,
+    randomStart : false,
+    onChangeSlide: () => {}
+};
+
+const mapStateToProps = (state) => ({
+    triggerSyncMoveEnd : state.homeTabs.triggerSyncMoveEnd,
+    distance : state.homeTabs.distance,
+    direction : state.homeTabs.direction,
+    currentTab : state.tabmenus.currentTab,
+    isTriggeredInHomeSwipe : state.tabmenus.isTriggeredInHomeSwipe
+});
+
+const mapDispatchToProps = (dispatch) => {
+    return {
+        actions: {
+            HomeTabs: bindActionCreators(HomeTabsActionCreators,dispatch),
+            TabMenu: bindActionCreators(TabMenuActionCreators, dispatch)
+        }    
+    };
+};
+export default connect(mapStateToProps, mapDispatchToProps, null, {withRef: true})(Swiper);
+
+
+
+
+
+
+
+
