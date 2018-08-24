@@ -540,6 +540,176 @@ class Swiper extends Component {
         $element.style.transitionDuration = duration;
         $element.style.transitionTimingFunction = 'cubic-bezier(0.1, 0.57, 0.1, 1)';
     }
+    _freeModeAnimation( evt ) {
+        let lastEvent = (this.moveEvent)? this.moveEvent.shift() : undefined;
+        if (!lastEvent){
+            return;
+        }
+        // edit X position (this.curX : touchEnd position)
+        let deltaX = (this.curX - lastEvent.changedTouches[0].clientX);
+        // calculate time
+        let deltaMS = parseInt(
+            Math.max((evt.timeStamp - lastEvent.timeStamp), 1)
+        );
+        if( deltaMS > 240 ){
+            return
+        }
+        // calculate Speed
+        let maxSpeed = 3;
+        let durationRate = 1000;
+        let speedX = Math.max(
+            Math.min( (deltaX / deltaMS), maxSpeed ),
+            -maxSpeed
+        );
+        // needed
+        let stopTimeCount = 0;
+        let lastStepTime = new Date();
+        this.playAnimation = true;
+        
+        // animation
+        this._animate({
+            duration: Math.abs( speedX ) * durationRate,
+            timing: (timeFraction)=>{
+                return timeFraction;
+            },
+            draw: (currentStep)=>{
+                if( !this.playAnimation ){
+                    return
+                }
+                
+                speedX *= (currentStep / 100);
+                
+                let now = new Date();
+                let stepDuration = (now.getTime() - lastStepTime.getTime());
+                lastStepTime = now;
+                
+                let newPos = (this.moveLastPos + (speedX + stepDuration));//move position
+                
+                if( newPos > this.minXpos ) {
+                    newPos = this.minXpos;
+                } else if( newPos < this.maxXpos ) {
+                    newPos = this.maxXpos;
+                }
+                
+                this.swipeRootElement.style.transitionDuration = '0ms';
+                this.swipeRootElement.style.transform = 'translate3d(' + newPos + 'px,0,0)';
+                
+                if( newPos == this.minXpos || newPos == this.maxXpos || stopTimeCount > 1){
+                    this._stopAnimation();
+                    return
+                }
+                
+                if( this.moveLastPos == newPos ){
+                    stopTimeCount++;
+                }
+                
+                this.moveLastPos = newPos;
+            }
+        });
+    }
+    _stopTransform() {
+        if( this.swipeRootElement ){
+            this.swipeRootElement.style.transform = 'none';
+            this.swipeRootElement.style.webkitTransform = 'none';
+        }
+    }
+    
+    _getUnit() {
+        let unit = ( this.props.isFreeContainer )? 'px' : '%'; //it is unit when scrollX, display: table
+        return unit;
+    }
+    _setMovePosX( evt ) {
+        // 1) save position needed
+        let mouseEvents = [this.startEvent];
+        if( parseInt(evt.timeStamp - mouseEvents[ mouseEvents.length - 1 ].timeStamp) > 40 ){
+            //
+            mouseEvents.push( evt );
+            if (mouseEvents.length > 2){
+                // Remove the oldest event.
+                mouseEvents.shift();
+            }
+            this.moveEvent = mouseEvents;
+        }
+    }
+    _setDirection() {
+        if( this.moveEvent && this.moveEvent.length > 0 ){
+            let lastEvent = this.moveEvent.shift();
+            let deltaX = (this.curX - lastEvent.changedTouches[0].clientX);
+            this.direction = (deltaX < 0)? 'next' : 'prev';
+            return deltaX;
+        }
+    }
+    
+    _changePostions() {
+        let index = this.currentIndex;
+        
+        if( this.props.loop ) {
+            let nextInx = (index + 1) % this.slides.length;
+            let prevInx = (index - 1 < 0) ? this.slides.length - 1 : index - 1;
+            let slide = null;
+            
+            if( this.isAbsolutePostionMode ){
+                //
+                this.slides.forEach(( slide, idx )=>{
+                    slide.style.left = '-200%';
+                });
+                if( this.direction == 'next' ){
+                    // prev slide
+                    slide = this.slides[prevInx];
+                    if( slide ) slide.style.left = '-100%';
+                    // next slide
+                    slide = this.slides[nextInx];
+                    if( slide ) slide.style.left = '100%';
+                } else if( this.direction == ''prev ) {
+                    // next slide
+                    slide = this.slides[nextInx];
+                    if( slide ) slide.style.left = '100%';
+                    // prev slide
+                    slide = this.slides[prevInx];
+                    if( slide ) slide.style.left = '-100%';
+                }
+                // active slide
+                slide = this.slides[index];
+                if( slide ) slide.style.left = '0%';
+            } else {
+                
+                if( this.slides.length > 0 ){
+                    this.slides.forEach(( slide, idx )=>{
+                        let posX;
+                        if( idx == index ){
+                            posX = 0;
+                        } else if( idx == nextInx ){
+                            posX = 100;
+                        } else if( idx == prevInx ){
+                            posX = -100;
+                        } else {
+                            posX = (idx - index) * 100;
+                        }
+                        
+                        slide.style.transform = 'translate3d(' + posX + '%, 0, 0)';
+                        
+                        //For HEADER SWIPE
+                        posX = -1 * posX;
+                        if( this.props.idClass == 'header-swipe' ){
+                            let innerSlide = slide.children[0];
+                            innerSlide.style.transform = 'translate3d(' + posX + '%, 0, 0)';
+                            innerSlide.style.transitionDuration = '0ms';
+                        }
+                        
+                        this.slideInnerXpos[idx] = posX;
+                    });
+                    
+                    if( this.direction == 'prev' ) {                    
+                        this.slides[nextInx].style.transform = 'translate3d(100%, 0, 0)';
+                        this.slides[prevInx].style.transform = 'translate3d(-100%, 0, 0)';
+                    }
+                }
+            }
+        }
+    }
+    _endTransition( event ) {
+        
+    }
     
 }
 
